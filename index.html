@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Planum - командный планер</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://unpkg.com/lucide@latest"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">P</div>
+          <div>
+            <h1>Planum</h1>
+            <span id="workspaceName">Engineering Workspace</span>
+          </div>
+        </div>
+
+        <div class="topbar-actions">
+          <label class="field compact">
+            <span>Пользователь</span>
+            <select id="currentUserSelect"></select>
+          </label>
+          <div id="currentRole" class="role-pill"></div>
+          <div id="syncStatus" class="sync-status"></div>
+          <button id="loginButton" class="icon-button ghost" type="button" title="Войти или сменить пользователя">
+            <i data-lucide="log-in"></i>
+          </button>
+          <button id="accessButton" class="icon-button" type="button" title="Доступы">
+            <i data-lucide="shield-check"></i>
+          </button>
+          <button id="resetButton" class="icon-button ghost" type="button" title="Сбросить демо-данные">
+            <i data-lucide="rotate-ccw"></i>
+          </button>
+          <button id="newTaskButton" class="primary-button" type="button">
+            <i data-lucide="plus"></i>
+            <span>Задача</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="workspace-layout">
+        <aside class="team-panel">
+          <div class="panel-heading">
+            <h2>Команда</h2>
+            <span id="teamCount"></span>
+          </div>
+          <div id="teamList" class="team-list"></div>
+        </aside>
+
+        <section class="work-area">
+          <div class="metrics-row" id="metricsRow"></div>
+
+          <div class="toolbar">
+            <label class="search-box">
+              <i data-lucide="search"></i>
+              <input id="searchInput" type="search" placeholder="Поиск по задачам, веткам, коммитам" />
+            </label>
+
+            <label class="field">
+              <span>Статус</span>
+              <select id="statusFilter"></select>
+            </label>
+
+            <label class="field">
+              <span>Исполнитель</span>
+              <select id="assigneeFilter"></select>
+            </label>
+
+            <label class="field">
+              <span>Область</span>
+              <select id="scopeFilter">
+                <option value="all">Все задачи</option>
+                <option value="mine">Мои задачи</option>
+                <option value="unassigned">Без исполнителя</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="kanbanBoard" class="kanban-board" aria-live="polite"></div>
+        </section>
+
+        <aside class="activity-panel">
+          <div class="panel-heading">
+            <h2>Активность</h2>
+            <span id="activityCount"></span>
+          </div>
+          <div id="activityFeed" class="activity-feed"></div>
+        </aside>
+      </main>
+    </div>
+
+    <aside id="taskDrawer" class="drawer" hidden>
+      <div class="drawer-backdrop" data-close-drawer></div>
+      <section class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+        <div id="taskDetails"></div>
+      </section>
+    </aside>
+
+    <div id="loginModal" class="modal" hidden>
+      <div class="modal-backdrop"></div>
+      <section class="modal-panel login-panel" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+        <div class="modal-header">
+          <div>
+            <h2 id="loginTitle">Вход</h2>
+            <span>Выберите пользователя и введите PIN</span>
+          </div>
+        </div>
+
+        <form id="loginForm" class="task-form">
+          <label class="field full">
+            <span>Пользователь</span>
+            <select name="userId"></select>
+          </label>
+
+          <label class="field full">
+            <span>PIN</span>
+            <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" required />
+          </label>
+
+          <div class="modal-actions">
+            <button id="loginCancelButton" class="secondary-button" type="button">Продолжить локально</button>
+            <button class="primary-button" type="submit">
+              <i data-lucide="log-in"></i>
+              <span>Войти</span>
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div id="taskModal" class="modal" hidden>
+      <div class="modal-backdrop" data-close-modal></div>
+      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle">
+        <div class="modal-header">
+          <div>
+            <h2 id="taskModalTitle">Новая задача</h2>
+            <span id="taskModalSubtitle"></span>
+          </div>
+          <button class="icon-button ghost" type="button" data-close-modal title="Закрыть">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+
+        <form id="taskForm" class="task-form">
+          <input type="hidden" name="taskId" />
+
+          <label class="field full">
+            <span>Название</span>
+            <input name="title" type="text" maxlength="120" required />
+          </label>
+
+          <label class="field full">
+            <span>Описание</span>
+            <textarea name="description" rows="4" maxlength="900"></textarea>
+          </label>
+
+          <div class="form-grid">
+            <label class="field">
+              <span>Тип</span>
+              <select name="type"></select>
+            </label>
+
+            <label class="field">
+              <span>Приоритет</span>
+              <select name="priority"></select>
+            </label>
+
+            <label class="field">
+              <span>Статус</span>
+              <select name="status"></select>
+            </label>
+
+            <label class="field">
+              <span>Спринт</span>
+              <input name="sprint" type="text" maxlength="40" />
+            </label>
+
+            <label class="field">
+              <span>Срок</span>
+              <input name="due" type="date" />
+            </label>
+
+            <label class="field">
+              <span>Оценка</span>
+              <input name="points" type="number" min="0" max="99" step="1" />
+            </label>
+
+            <label class="field full">
+              <span>Ветка</span>
+              <input name="branch" type="text" maxlength="80" placeholder="feature/project-board" />
+            </label>
+          </div>
+
+          <div class="field full">
+            <span>Исполнители</span>
+            <div id="assigneePicker" class="person-picker"></div>
+          </div>
+
+          <div class="modal-actions">
+            <button class="secondary-button" type="button" data-close-modal>Отмена</button>
+            <button class="primary-button" type="submit">
+              <i data-lucide="save"></i>
+              <span>Сохранить</span>
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div id="accessModal" class="modal" hidden>
+      <div class="modal-backdrop" data-close-access></div>
+      <section class="modal-panel access-panel" role="dialog" aria-modal="true" aria-labelledby="accessModalTitle">
+        <div class="modal-header">
+          <div>
+            <h2 id="accessModalTitle">Доступы</h2>
+            <span id="accessSubtitle"></span>
+          </div>
+          <button class="icon-button ghost" type="button" data-close-access title="Закрыть">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+
+        <div id="accessList" class="access-list"></div>
+
+        <form id="userForm" class="user-form">
+          <label class="field">
+            <span>Имя</span>
+            <input name="name" type="text" maxlength="60" required />
+          </label>
+          <label class="field">
+            <span>Роль</span>
+            <select name="role"></select>
+          </label>
+          <label class="field">
+            <span>Должность</span>
+            <input name="title" type="text" maxlength="70" />
+          </label>
+          <label class="field">
+            <span>PIN</span>
+            <input name="pin" type="text" inputmode="numeric" maxlength="20" placeholder="1111" />
+          </label>
+          <button class="primary-button" type="submit">
+            <i data-lucide="user-plus"></i>
+            <span>Добавить</span>
+          </button>
+        </form>
+      </section>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

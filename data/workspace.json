@@ -1,0 +1,210 @@
+{
+  "users": [
+    {
+      "id": "u-admin",
+      "name": "Анна Волкова",
+      "role": "admin",
+      "title": "Product Lead",
+      "color": "#0f766e",
+      "pin": "1111"
+    },
+    {
+      "id": "u-pm",
+      "name": "Илья Морозов",
+      "role": "manager",
+      "title": "Project Manager",
+      "color": "#2864a6",
+      "pin": "1111"
+    },
+    {
+      "id": "u-dev-1",
+      "name": "Мария Соколова",
+      "role": "developer",
+      "title": "Frontend Engineer",
+      "color": "#6d4cc2",
+      "pin": "1111"
+    },
+    {
+      "id": "u-dev-2",
+      "name": "Денис Карпов",
+      "role": "developer",
+      "title": "Backend Engineer",
+      "color": "#9a6700",
+      "pin": "1111"
+    },
+    {
+      "id": "u-viewer",
+      "name": "Олег Романов",
+      "role": "viewer",
+      "title": "Stakeholder",
+      "color": "#66707c",
+      "pin": "1111"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "PLN-184",
+      "title": "Собрать MVP канбан-доски проекта",
+      "description": "Первый рабочий экран с колонками, задачами, исполнителями, быстрыми фильтрами и карточкой задачи.",
+      "type": "feature",
+      "priority": "high",
+      "status": "in_progress",
+      "assigneeIds": [
+        "u-dev-1",
+        "u-dev-2"
+      ],
+      "reporterId": "u-admin",
+      "sprint": "Sprint 12",
+      "due": "2026-05-23",
+      "points": 8,
+      "branch": "feature/project-board",
+      "createdAt": "2026-05-14T09:00:00.000Z",
+      "updatedAt": "2026-05-17T15:30:00.000Z",
+      "commits": [
+        {
+          "id": "c-1",
+          "hash": "a19d7f2",
+          "authorId": "u-dev-1",
+          "branch": "feature/project-board",
+          "message": "Добавлена сетка колонок и карточки задач",
+          "createdAt": "2026-05-16T10:20:00.000Z"
+        },
+        {
+          "id": "c-2",
+          "hash": "7c41b8a",
+          "authorId": "u-dev-2",
+          "branch": "feature/project-board",
+          "message": "Подключены фильтры по исполнителям",
+          "createdAt": "2026-05-17T13:48:00.000Z"
+        }
+      ],
+      "comments": [
+        {
+          "id": "cm-1",
+          "authorId": "u-pm",
+          "text": "Нужен быстрый переход из карточки к связанным коммитам.",
+          "createdAt": "2026-05-17T09:15:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "PLN-185",
+      "title": "Настроить роли и права доступа",
+      "description": "Администратор управляет пользователями, менеджер ведет задачи, разработчик обновляет назначенные задачи, наблюдатель читает доску.",
+      "type": "task",
+      "priority": "blocker",
+      "status": "review",
+      "assigneeIds": [
+        "u-dev-2"
+      ],
+      "reporterId": "u-admin",
+      "sprint": "Sprint 12",
+      "due": "2026-05-20",
+      "points": 5,
+      "branch": "feature/access-rules",
+      "createdAt": "2026-05-15T11:00:00.000Z",
+      "updatedAt": "2026-05-18T08:35:00.000Z",
+      "commits": [
+        {
+          "id": "c-3",
+          "hash": "0e8f9ab",
+          "authorId": "u-dev-2",
+          "branch": "feature/access-rules",
+          "message": "Ограничены действия для наблюдателей",
+          "createdAt": "2026-05-18T08:20:00.000Z"
+        }
+      ],
+      "comments": []
+    },
+    {
+      "id": "PLN-186",
+      "title": "Связать задачи с ветками репозитория",
+      "description": "В карточке задачи должна быть видна ветка, история коммитов и последние изменения по задаче.",
+      "type": "feature",
+      "priority": "medium",
+      "status": "todo",
+      "assigneeIds": [
+        "u-dev-1"
+      ],
+      "reporterId": "u-pm",
+      "sprint": "Sprint 12",
+      "due": "2026-05-27",
+      "points": 3,
+      "branch": "feature/git-links",
+      "createdAt": "2026-05-16T12:00:00.000Z",
+      "updatedAt": "2026-05-16T12:00:00.000Z",
+      "commits": [],
+      "comments": []
+    },
+    {
+      "id": "PLN-187",
+      "title": "Исправить дублирование задач при фильтрации",
+      "description": "После сброса фильтров карточки не должны повторяться, а счетчики колонок должны совпадать с видимыми задачами.",
+      "type": "bug",
+      "priority": "high",
+      "status": "backlog",
+      "assigneeIds": [],
+      "reporterId": "u-pm",
+      "sprint": "Inbox",
+      "due": "2026-05-25",
+      "points": 2,
+      "branch": "bugfix/filter-duplicates",
+      "createdAt": "2026-05-17T12:00:00.000Z",
+      "updatedAt": "2026-05-17T12:00:00.000Z",
+      "commits": [],
+      "comments": []
+    },
+    {
+      "id": "PLN-188",
+      "title": "Описать процесс перевода задач между этапами",
+      "description": "Короткий документ для команды: кто может менять статус, когда задача уходит на ревью и кто закрывает готовые задачи.",
+      "type": "docs",
+      "priority": "low",
+      "status": "done",
+      "assigneeIds": [
+        "u-pm"
+      ],
+      "reporterId": "u-admin",
+      "sprint": "Sprint 11",
+      "due": "2026-05-17",
+      "points": 1,
+      "branch": "docs/task-workflow",
+      "createdAt": "2026-05-10T10:30:00.000Z",
+      "updatedAt": "2026-05-17T16:40:00.000Z",
+      "commits": [
+        {
+          "id": "c-4",
+          "hash": "d2a4ce1",
+          "authorId": "u-pm",
+          "branch": "docs/task-workflow",
+          "message": "Добавлен регламент статусов задач",
+          "createdAt": "2026-05-17T16:36:00.000Z"
+        }
+      ],
+      "comments": []
+    }
+  ],
+  "activities": [
+    {
+      "id": "a-1",
+      "userId": "u-dev-2",
+      "taskId": "PLN-185",
+      "text": "добавил коммит 0e8f9ab",
+      "createdAt": "2026-05-18T08:20:00.000Z"
+    },
+    {
+      "id": "a-2",
+      "userId": "u-pm",
+      "taskId": "PLN-184",
+      "text": "оставил комментарий",
+      "createdAt": "2026-05-17T09:15:00.000Z"
+    },
+    {
+      "id": "a-3",
+      "userId": "u-pm",
+      "taskId": "PLN-188",
+      "text": "перевел задачу в Готово",
+      "createdAt": "2026-05-17T16:40:00.000Z"
+    }
+  ]
+}

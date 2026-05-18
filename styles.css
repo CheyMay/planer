@@ -454,6 +454,7 @@ textarea:focus-visible {
   gap: 10px;
   background: #fff;
   border: 1px solid var(--border);
+  border-left: 5px solid var(--card-color, var(--border));
   border-radius: var(--radius);
   padding: 12px;
   cursor: pointer;
@@ -533,6 +534,24 @@ textarea:focus-visible {
 .chip.violet {
   color: var(--violet);
   background: var(--violet-soft);
+}
+
+.label-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.label-chip {
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 8px;
+  background: var(--label-bg);
+  color: #26313d;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .priority-medium,
@@ -657,6 +676,7 @@ textarea:focus-visible {
   padding: 0;
   background: var(--text);
   color: #fff;
+  position: relative;
 }
 
 .icon-button.ghost {
@@ -682,6 +702,27 @@ select:disabled,
 textarea:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.badge-button {
+  overflow: visible;
+}
+
+.notification-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  border: 2px solid #fff;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 900;
 }
 
 .drawer,
@@ -883,6 +924,100 @@ textarea:disabled {
 
 .login-panel {
   width: min(430px, 100%);
+}
+
+.notifications-panel {
+  width: min(560px, 100%);
+}
+
+.notifications-list,
+.checklist-list,
+.attachment-list {
+  display: grid;
+  gap: 8px;
+}
+
+.notification-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 10px;
+  cursor: pointer;
+}
+
+.notification-row.unread {
+  border-color: #a9ddd4;
+  background: var(--accent-soft);
+}
+
+.notification-row em,
+.notification-row small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-style: normal;
+  font-size: 12px;
+}
+
+.checklist-item,
+.attachment-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 8px;
+}
+
+.checklist-item label {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.checklist-item.done label span {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.attachment-row {
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+}
+
+.attachment-row > i {
+  width: 20px;
+  height: 20px;
+  color: var(--muted);
+}
+
+.attachment-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.attachment-main a {
+  color: var(--blue);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.mention {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-weight: 800;
 }
 
 .access-list {

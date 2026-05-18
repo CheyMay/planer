@@ -8,9 +8,11 @@ const dataDir = path.join(rootDir, "data");
 const dataFile = path.join(dataDir, "workspace.json");
 const exampleDataFile = path.join(dataDir, "workspace.example.json");
 const backupDir = path.join(dataDir, "backups");
+const uploadDir = path.join(dataDir, "uploads");
 const port = Number(process.env.PORT || 4173);
 const host = process.env.HOST || "127.0.0.1";
-const maxBodyBytes = 2 * 1024 * 1024;
+const maxBodyBytes = 16 * 1024 * 1024;
+const maxAttachmentBytes = 10 * 1024 * 1024;
 const maxBackups = Number(process.env.MAX_BACKUPS || 30);
 const sessions = new Map();
 let writeQueue = Promise.resolve();
@@ -23,7 +25,20 @@ const roles = {
 };
 
 const statuses = new Set(["backlog", "todo", "in_progress", "review", "done"]);
-const taskFields = ["title", "description", "type", "priority", "status", "sprint", "due", "points", "branch", "assigneeIds"];
+const taskFields = [
+  "title",
+  "description",
+  "type",
+  "priority",
+  "status",
+  "sprint",
+  "due",
+  "points",
+  "branch",
+  "assigneeIds",
+  "labels",
+  "color",
+];
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -31,6 +46,14 @@ const contentTypes = {
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".md": "text/markdown; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".pdf": "application/pdf",
+  ".txt": "text/plain; charset=utf-8",
 };
 
 const server = http.createServer(async (request, response) => {
@@ -39,6 +62,11 @@ const server = http.createServer(async (request, response) => {
 
     if (url.pathname.startsWith("/api/")) {
       await handleApi(request, response, url);
+      return;
+    }
+
+    if (url.pathname.startsWith("/uploads/")) {
+      await serveUploadFile(url.pathname, response);
       return;
     }
 
@@ -91,8 +119,45 @@ async function handleApi(request, response, url) {
   const actor = authenticate(request, response, workspace);
   if (!actor) return;
 
+  if (url.pathname === "/api/notifications/read-all" && request.method === "POST") {
+    await handleReadAllNotifications(response, workspace, actor.user);
+    return;
+  }
+
+  const notificationRoute = url.pathname.match(/^\/api\/notifications\/([^/]+)$/);
+  if (notificationRoute) {
+    await handleNotificationRoute(request, response, workspace, actor.user, decodeURIComponent(notificationRoute[1]));
+    return;
+  }
+
   if (url.pathname === "/api/tasks" && request.method === "POST") {
     await handleCreateTask(request, response, workspace, actor.user);
+    return;
+  }
+
+  const checklistRoute = url.pathname.match(/^\/api\/tasks\/([^/]+)\/checklist(?:\/([^/]+))?$/);
+  if (checklistRoute) {
+    await handleChecklistRoute(
+      request,
+      response,
+      workspace,
+      actor.user,
+      decodeURIComponent(checklistRoute[1]),
+      checklistRoute[2] ? decodeURIComponent(checklistRoute[2]) : null,
+    );
+    return;
+  }
+
+  const attachmentRoute = url.pathname.match(/^\/api\/tasks\/([^/]+)\/attachments(?:\/([^/]+))?$/);
+  if (attachmentRoute) {
+    await handleAttachmentRoute(
+      request,
+      response,
+      workspace,
+      actor.user,
+      decodeURIComponent(attachmentRoute[1]),
+      attachmentRoute[2] ? decodeURIComponent(attachmentRoute[2]) : null,
+    );
     return;
   }
 
@@ -192,6 +257,13 @@ async function handleCreateTask(request, response, workspace, actor) {
 
   workspace.tasks.unshift(task);
   addActivity(workspace, actor.id, task.id, "создал задачу");
+  notifyUsers(
+    workspace,
+    task.assigneeIds.filter((userId) => userId !== actor.id),
+    actor.id,
+    task.id,
+    `назначил задачу ${task.id}`,
+  );
   await writeWorkspace(workspace);
   sendWorkspace(response, workspace);
 }
@@ -240,10 +312,16 @@ async function handleUpdateTask(request, response, workspace, actor, task) {
   const payload = await readJsonBody(request, response);
   if (!payload) return;
 
+  const previousAssignees = new Set(Array.isArray(task.assigneeIds) ? task.assigneeIds : []);
   for (const field of taskFields) {
     if (field in payload) {
       task[field] = payload[field];
     }
+  }
+
+  if (Array.isArray(payload.assigneeIds)) {
+    const newAssignees = payload.assigneeIds.filter((userId) => !previousAssignees.has(userId) && userId !== actor.id);
+    notifyUsers(workspace, newAssignees, actor.id, task.id, `назначил вас на ${task.id}`);
   }
 
   Object.assign(task, normalizeTask(task), { updatedAt: new Date().toISOString() });
@@ -346,10 +424,201 @@ async function handleCreateComment(request, response, workspace, actor, task) {
     id: uid("cm"),
     authorId: actor.id,
     text,
+    mentions: findMentionedUserIds(workspace, text),
     createdAt: new Date().toISOString(),
   });
   task.updatedAt = new Date().toISOString();
   addActivity(workspace, actor.id, task.id, "оставил комментарий");
+  notifyUsers(
+    workspace,
+    findMentionedUserIds(workspace, text).filter((userId) => userId !== actor.id),
+    actor.id,
+    task.id,
+    `упомянул вас в ${task.id}`,
+  );
+  await writeWorkspace(workspace);
+  sendWorkspace(response, workspace);
+}
+
+async function handleChecklistRoute(request, response, workspace, actor, taskId, itemId) {
+  const task = workspace.tasks.find((item) => item.id === taskId);
+  if (!task) {
+    sendJson(response, 404, { error: "Task not found" });
+    return;
+  }
+
+  if (!canWorkOnTask(actor, task)) {
+    sendJson(response, 403, { error: "Current role cannot update checklist" });
+    return;
+  }
+
+  task.checklist = Array.isArray(task.checklist) ? task.checklist : [];
+
+  if (!itemId && request.method === "POST") {
+    const payload = await readJsonBody(request, response);
+    if (!payload) return;
+
+    const text = String(payload.text || "").trim();
+    if (!text) {
+      sendJson(response, 422, { error: "Checklist item is empty" });
+      return;
+    }
+
+    task.checklist.push({
+      id: uid("cl"),
+      text,
+      done: false,
+      createdBy: actor.id,
+      createdAt: new Date().toISOString(),
+    });
+    task.updatedAt = new Date().toISOString();
+    addActivity(workspace, actor.id, task.id, "добавил пункт чеклиста");
+    await writeWorkspace(workspace);
+    sendWorkspace(response, workspace);
+    return;
+  }
+
+  const checklistItem = task.checklist.find((item) => item.id === itemId);
+  if (!checklistItem) {
+    sendJson(response, 404, { error: "Checklist item not found" });
+    return;
+  }
+
+  if (request.method === "PATCH") {
+    const payload = await readJsonBody(request, response);
+    if (!payload) return;
+
+    if ("text" in payload) checklistItem.text = String(payload.text || "").trim();
+    if ("done" in payload) {
+      checklistItem.done = Boolean(payload.done);
+      checklistItem.doneBy = checklistItem.done ? actor.id : null;
+      checklistItem.doneAt = checklistItem.done ? new Date().toISOString() : null;
+    }
+    task.updatedAt = new Date().toISOString();
+    addActivity(workspace, actor.id, task.id, checklistItem.done ? "закрыл пункт чеклиста" : "обновил чеклист");
+    await writeWorkspace(workspace);
+    sendWorkspace(response, workspace);
+    return;
+  }
+
+  if (request.method === "DELETE") {
+    task.checklist = task.checklist.filter((item) => item.id !== itemId);
+    task.updatedAt = new Date().toISOString();
+    addActivity(workspace, actor.id, task.id, "удалил пункт чеклиста");
+    await writeWorkspace(workspace);
+    sendWorkspace(response, workspace);
+    return;
+  }
+
+  sendJson(response, 405, { error: "Unsupported checklist operation" });
+}
+
+async function handleAttachmentRoute(request, response, workspace, actor, taskId, attachmentId) {
+  const task = workspace.tasks.find((item) => item.id === taskId);
+  if (!task) {
+    sendJson(response, 404, { error: "Task not found" });
+    return;
+  }
+
+  if (!canWorkOnTask(actor, task)) {
+    sendJson(response, 403, { error: "Current role cannot update attachments" });
+    return;
+  }
+
+  task.attachments = Array.isArray(task.attachments) ? task.attachments : [];
+
+  if (!attachmentId && request.method === "POST") {
+    const payload = await readJsonBody(request, response);
+    if (!payload) return;
+
+    const originalName = String(payload.name || "attachment").trim();
+    const type = String(payload.type || "application/octet-stream").trim();
+    const base64 = String(payload.data || "");
+    const bytes = Buffer.from(base64, "base64");
+
+    if (!bytes.length || bytes.length > maxAttachmentBytes) {
+      sendJson(response, 422, { error: "Attachment is empty or too large" });
+      return;
+    }
+
+    const id = uid("att");
+    const safeTaskId = safePathSegment(task.id);
+    const safeName = safeFileName(originalName);
+    const relativePath = path.posix.join("uploads", safeTaskId, `${id}-${safeName}`);
+    const absolutePath = path.join(dataDir, relativePath);
+
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.writeFile(absolutePath, bytes);
+
+    task.attachments.push({
+      id,
+      name: originalName,
+      type,
+      size: bytes.length,
+      path: relativePath,
+      url: `/${relativePath.replace(/\\/g, "/")}`,
+      uploadedBy: actor.id,
+      createdAt: new Date().toISOString(),
+    });
+    task.updatedAt = new Date().toISOString();
+    addActivity(workspace, actor.id, task.id, `добавил вложение ${originalName}`);
+    await writeWorkspace(workspace);
+    sendWorkspace(response, workspace);
+    return;
+  }
+
+  const attachment = task.attachments.find((item) => item.id === attachmentId);
+  if (!attachment) {
+    sendJson(response, 404, { error: "Attachment not found" });
+    return;
+  }
+
+  if (request.method === "DELETE") {
+    task.attachments = task.attachments.filter((item) => item.id !== attachmentId);
+    if (attachment.path) {
+      const absolutePath = path.resolve(dataDir, attachment.path);
+      if (absolutePath !== dataDir && absolutePath.startsWith(`${dataDir}${path.sep}`)) {
+        await fs.unlink(absolutePath).catch(() => {});
+      }
+    }
+    task.updatedAt = new Date().toISOString();
+    addActivity(workspace, actor.id, task.id, `удалил вложение ${attachment.name}`);
+    await writeWorkspace(workspace);
+    sendWorkspace(response, workspace);
+    return;
+  }
+
+  sendJson(response, 405, { error: "Unsupported attachment operation" });
+}
+
+async function handleNotificationRoute(request, response, workspace, actor, notificationId) {
+  workspace.notifications = Array.isArray(workspace.notifications) ? workspace.notifications : [];
+  const notification = workspace.notifications.find((item) => item.id === notificationId && item.userId === actor.id);
+  if (!notification) {
+    sendJson(response, 404, { error: "Notification not found" });
+    return;
+  }
+
+  if (request.method !== "PATCH") {
+    sendJson(response, 405, { error: "Unsupported notification operation" });
+    return;
+  }
+
+  const payload = await readJsonBody(request, response);
+  if (!payload) return;
+
+  if ("read" in payload) notification.read = Boolean(payload.read);
+  await writeWorkspace(workspace);
+  sendWorkspace(response, workspace);
+}
+
+async function handleReadAllNotifications(response, workspace, actor) {
+  workspace.notifications = Array.isArray(workspace.notifications) ? workspace.notifications : [];
+  workspace.notifications.forEach((notification) => {
+    if (notification.userId === actor.id) {
+      notification.read = true;
+    }
+  });
   await writeWorkspace(workspace);
   sendWorkspace(response, workspace);
 }
@@ -454,6 +723,28 @@ async function serveStaticFile(urlPathname, response) {
   const absolutePath = path.resolve(rootDir, `.${requestedPath}`);
 
   if (absolutePath !== rootDir && !absolutePath.startsWith(`${rootDir}${path.sep}`)) {
+    sendJson(response, 403, { error: "Forbidden" });
+    return;
+  }
+
+  try {
+    const content = await fs.readFile(absolutePath);
+    const extension = path.extname(absolutePath).toLowerCase();
+    sendRaw(response, 200, content, contentTypes[extension] || "application/octet-stream");
+  } catch (error) {
+    if (error.code === "ENOENT" || error.code === "EISDIR") {
+      sendJson(response, 404, { error: "Not found" });
+      return;
+    }
+    throw error;
+  }
+}
+
+async function serveUploadFile(urlPathname, response) {
+  const relativePath = decodeURIComponent(urlPathname.replace(/^\/uploads\//, ""));
+  const absolutePath = path.resolve(uploadDir, relativePath);
+
+  if (absolutePath !== uploadDir && !absolutePath.startsWith(`${uploadDir}${path.sep}`)) {
     sendJson(response, 403, { error: "Forbidden" });
     return;
   }
@@ -603,7 +894,8 @@ function isValidWorkspace(payload) {
     payload &&
     Array.isArray(payload.users) &&
     Array.isArray(payload.tasks) &&
-    (!payload.activities || Array.isArray(payload.activities))
+    (!payload.activities || Array.isArray(payload.activities)) &&
+    (!payload.notifications || Array.isArray(payload.notifications))
   );
 }
 
@@ -624,6 +916,7 @@ function normalizeWorkspace(payload, previousWorkspace = { users: [] }) {
     })),
     tasks: payload.tasks.map(normalizeTask),
     activities: Array.isArray(payload.activities) ? payload.activities : [],
+    notifications: Array.isArray(payload.notifications) ? payload.notifications : [],
   };
 }
 
@@ -641,10 +934,14 @@ function normalizeTask(task) {
     due: String(task.due || "").trim(),
     points: Number(task.points || 0),
     branch: String(task.branch || "").trim(),
+    labels: normalizeLabels(task.labels),
+    color: String(task.color || "none"),
     createdAt: task.createdAt || new Date().toISOString(),
     updatedAt: task.updatedAt || new Date().toISOString(),
     commits: Array.isArray(task.commits) ? task.commits : [],
     comments: Array.isArray(task.comments) ? task.comments : [],
+    checklist: Array.isArray(task.checklist) ? task.checklist : [],
+    attachments: Array.isArray(task.attachments) ? task.attachments : [],
   };
 }
 
@@ -684,6 +981,11 @@ function canAddCommit(user, task) {
   return user.role === "developer" && Array.isArray(task.assigneeIds) && task.assigneeIds.includes(user.id);
 }
 
+function canWorkOnTask(user, task) {
+  if (["admin", "manager"].includes(user.role)) return true;
+  return user.role === "developer" && Array.isArray(task.assigneeIds) && task.assigneeIds.includes(user.id);
+}
+
 function countAdmins(workspace) {
   return workspace.users.filter((user) => user.role === "admin").length;
 }
@@ -697,6 +999,53 @@ function addActivity(workspace, userId, taskId, text) {
     text,
     createdAt: new Date().toISOString(),
   });
+}
+
+function notifyUsers(workspace, userIds, actorId, taskId, text) {
+  workspace.notifications = Array.isArray(workspace.notifications) ? workspace.notifications : [];
+  const uniqueUserIds = [...new Set(userIds)].filter((userId) => userId && userId !== actorId);
+
+  uniqueUserIds.forEach((userId) => {
+    if (!workspace.users.some((user) => user.id === userId)) return;
+    workspace.notifications.unshift({
+      id: uid("ntf"),
+      userId,
+      actorId,
+      taskId,
+      text,
+      read: false,
+      createdAt: new Date().toISOString(),
+    });
+  });
+}
+
+function findMentionedUserIds(workspace, text) {
+  const normalizedText = String(text || "").toLowerCase();
+  return workspace.users
+    .filter((user) => normalizedText.includes(`@${String(user.name).toLowerCase()}`))
+    .map((user) => user.id);
+}
+
+function normalizeLabels(labels) {
+  const source = Array.isArray(labels)
+    ? labels
+    : String(labels || "")
+        .split(",")
+        .map((label) => label.trim());
+
+  return [...new Set(source.map((label) => String(label || "").trim()).filter(Boolean))].slice(0, 8);
+}
+
+function safePathSegment(value) {
+  return String(value || "task").replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function safeFileName(value) {
+  const cleaned = String(value || "attachment")
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.slice(0, 120) || "attachment";
 }
 
 function nextTaskId(workspace) {

@@ -119,6 +119,10 @@ pm2 restart planer
 - создание и редактирование задач;
 - канбан-доска со статусами и drag-and-drop;
 - карточка задачи с постановщиком, исполнителями, сроком, веткой и оценкой;
+- метки и цвет карточки;
+- подзадачи/чеклист внутри задачи;
+- вложения в `data/uploads/`;
+- уведомления и `@упоминания` в комментариях;
 - комментарии и привязка коммитов;
 - фильтры по статусу, исполнителю и области;
 - лента активности;
@@ -134,7 +138,14 @@ pm2 restart planer
 - `PATCH /api/tasks/:id/status` - смена статуса;
 - `POST /api/tasks/:id/comments` - комментарий;
 - `POST /api/tasks/:id/commits` - коммит;
+- `POST /api/tasks/:id/checklist` - добавить пункт чеклиста;
+- `PATCH /api/tasks/:id/checklist/:itemId` - обновить пункт чеклиста;
+- `DELETE /api/tasks/:id/checklist/:itemId` - удалить пункт чеклиста;
+- `POST /api/tasks/:id/attachments` - загрузить вложение;
+- `DELETE /api/tasks/:id/attachments/:attachmentId` - удалить вложение;
 - `DELETE /api/tasks/:id` - удаление задачи;
 - `POST /api/users` - добавление пользователя;
 - `PATCH /api/users/:id` - изменение роли/PIN;
-- `DELETE /api/users/:id` - удаление пользователя.
+- `DELETE /api/users/:id` - удаление пользователя;
+- `PATCH /api/notifications/:id` - отметить уведомление прочитанным;
+- `POST /api/notifications/read-all` - отметить все уведомления прочитанными.

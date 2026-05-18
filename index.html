@@ -28,6 +28,10 @@
           <button id="loginButton" class="icon-button ghost" type="button" title="Войти или сменить пользователя">
             <i data-lucide="log-in"></i>
           </button>
+          <button id="notificationsButton" class="icon-button ghost badge-button" type="button" title="Уведомления">
+            <i data-lucide="bell"></i>
+            <span id="notificationBadge" class="notification-badge" hidden>0</span>
+          </button>
           <button id="accessButton" class="icon-button" type="button" title="Доступы">
             <i data-lucide="shield-check"></i>
           </button>
@@ -192,6 +196,16 @@
               <span>Ветка</span>
               <input name="branch" type="text" maxlength="80" placeholder="feature/project-board" />
             </label>
+
+            <label class="field full">
+              <span>Метки</span>
+              <input name="labels" type="text" maxlength="160" placeholder="frontend, срочно, клиент" />
+            </label>
+
+            <label class="field">
+              <span>Цвет</span>
+              <select name="color"></select>
+            </label>
           </div>
 
           <div class="field full">
@@ -247,6 +261,30 @@
             <span>Добавить</span>
           </button>
         </form>
+      </section>
+    </div>
+
+    <div id="notificationsModal" class="modal" hidden>
+      <div class="modal-backdrop" data-close-notifications></div>
+      <section class="modal-panel notifications-panel" role="dialog" aria-modal="true" aria-labelledby="notificationsTitle">
+        <div class="modal-header">
+          <div>
+            <h2 id="notificationsTitle">Уведомления</h2>
+            <span id="notificationsSubtitle"></span>
+          </div>
+          <button class="icon-button ghost" type="button" data-close-notifications title="Закрыть">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+
+        <div id="notificationsList" class="notifications-list"></div>
+
+        <div class="modal-actions">
+          <button id="markNotificationsReadButton" class="secondary-button" type="button">
+            <i data-lucide="check-check"></i>
+            <span>Прочитано</span>
+          </button>
+        </div>
       </section>
     </div>
 

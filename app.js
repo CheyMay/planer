@@ -64,6 +64,18 @@ const taskTypes = {
   docs: { label: "Документация", className: "docs" },
 };
 
+const taskColors = {
+  none: { label: "Без цвета", value: "#d9dee4" },
+  teal: { label: "Бирюзовый", value: "#0f766e" },
+  blue: { label: "Синий", value: "#2864a6" },
+  violet: { label: "Фиолетовый", value: "#6d4cc2" },
+  amber: { label: "Желтый", value: "#9a6700" },
+  red: { label: "Красный", value: "#b42318" },
+  green: { label: "Зеленый", value: "#207a44" },
+};
+
+const labelPalette = ["#e1edfa", "#dff3e7", "#fff0c2", "#eee8ff", "#fde7e4", "#d9f2ed"];
+
 const seedState = {
   currentUserId: "u-admin",
   users: [
@@ -270,6 +282,7 @@ const seedState = {
       createdAt: "2026-05-17T16:40:00.000Z",
     },
   ],
+  notifications: [],
 };
 
 let state = clone(seedState);
@@ -303,6 +316,8 @@ function cacheElements() {
     "currentRole",
     "syncStatus",
     "loginButton",
+    "notificationsButton",
+    "notificationBadge",
     "newTaskButton",
     "resetButton",
     "accessButton",
@@ -330,6 +345,10 @@ function cacheElements() {
     "accessSubtitle",
     "accessList",
     "userForm",
+    "notificationsModal",
+    "notificationsSubtitle",
+    "notificationsList",
+    "markNotificationsReadButton",
     "toast",
   ].forEach((id) => {
     elements[id] = document.getElementById(id);
@@ -373,6 +392,8 @@ function bindEvents() {
   elements.loginButton.addEventListener("click", () => openLoginModal(sessionUserId));
   elements.loginCancelButton.addEventListener("click", closeLoginModal);
   elements.loginForm.addEventListener("submit", handleLoginSubmit);
+  elements.notificationsButton.addEventListener("click", openNotificationsModal);
+  elements.markNotificationsReadButton.addEventListener("click", markAllNotificationsRead);
 
   elements.accessButton.addEventListener("click", openAccessModal);
 
@@ -389,6 +410,10 @@ function bindEvents() {
     node.addEventListener("click", closeAccessModal);
   });
 
+  document.querySelectorAll("[data-close-notifications]").forEach((node) => {
+    node.addEventListener("click", closeNotificationsModal);
+  });
+
   document.querySelectorAll("[data-close-drawer]").forEach((node) => {
     node.addEventListener("click", closeTaskDrawer);
   });
@@ -397,6 +422,7 @@ function bindEvents() {
     if (event.key === "Escape") {
       closeTaskModal();
       closeAccessModal();
+      closeNotificationsModal();
       closeTaskDrawer();
     }
   });
@@ -420,6 +446,9 @@ function fillStaticSelects() {
   form.elements.status.innerHTML = statuses
     .map((status) => `<option value="${status.id}">${status.label}</option>`)
     .join("");
+  form.elements.color.innerHTML = Object.entries(taskColors)
+    .map(([id, color]) => `<option value="${id}">${color.label}</option>`)
+    .join("");
 
   elements.userForm.elements.role.innerHTML = Object.entries(roles)
     .map(([id, role]) => `<option value="${id}">${role.label}</option>`)
@@ -434,8 +463,12 @@ function render() {
   renderFilters();
   renderBoard();
   renderActivity();
+  renderNotificationBadge();
   if (!elements.accessModal.hidden) {
     renderAccessModal();
+  }
+  if (!elements.notificationsModal.hidden) {
+    renderNotificationsModal();
   }
   refreshIcons();
 }
@@ -559,18 +592,28 @@ function renderTaskCard(task) {
   const assignedUsers = task.assigneeIds.map(getUser).filter(Boolean);
   const canDrag = canDragTask(task);
   const dueClass = isOverdue(task) ? "overdue" : "";
+  const checklist = getChecklistStats(task);
+  const cardColor = taskColorValue(task.color);
 
   return `
-    <article class="task-card ${canDrag ? "" : "locked"}" data-task-id="${escapeAttr(task.id)}" draggable="${canDrag}">
+    <article class="task-card ${canDrag ? "" : "locked"}" data-task-id="${escapeAttr(task.id)}" draggable="${canDrag}" style="--card-color:${escapeAttr(
+      cardColor,
+    )}">
       <div class="task-meta">
         <span class="task-key">${escapeHtml(task.id)}</span>
         <span class="tag ${type.className}">${type.label}</span>
         <span class="chip ${priority.className} ${dueClass}">${priority.label}</span>
       </div>
       <h4 class="task-title">${escapeHtml(task.title)}</h4>
+      ${renderLabels(task.labels)}
       <div class="task-meta">
         <span class="icon-stat" title="Ветка"><i data-lucide="git-branch"></i>${escapeHtml(task.branch || "нет ветки")}</span>
         <span class="icon-stat" title="Оценка"><i data-lucide="gauge"></i>${Number(task.points || 0)}</span>
+        ${
+          checklist.total
+            ? `<span class="icon-stat" title="Чеклист"><i data-lucide="list-checks"></i>${checklist.done}/${checklist.total}</span>`
+            : ""
+        }
       </div>
       <div class="task-footer">
         <div class="avatars" title="Исполнители">
@@ -583,6 +626,7 @@ function renderTaskCard(task) {
         <div class="task-meta">
           <span class="icon-stat" title="Коммиты"><i data-lucide="git-commit-horizontal"></i>${task.commits.length}</span>
           <span class="icon-stat" title="Комментарии"><i data-lucide="message-square"></i>${task.comments.length}</span>
+          <span class="icon-stat" title="Вложения"><i data-lucide="paperclip"></i>${task.attachments.length}</span>
         </div>
       </div>
     </article>
@@ -656,6 +700,104 @@ function renderActivity() {
         })
         .join("")
     : `<div class="empty-state">Нет активности</div>`;
+}
+
+function renderNotificationBadge() {
+  const unread = getCurrentUserNotifications().filter((notification) => !notification.read).length;
+  elements.notificationBadge.hidden = unread === 0;
+  elements.notificationBadge.textContent = unread > 99 ? "99+" : String(unread);
+}
+
+function openNotificationsModal() {
+  if (canUseApi() && !sessionToken) {
+    openLoginModal(sessionUserId);
+    return;
+  }
+
+  elements.notificationsModal.hidden = false;
+  renderNotificationsModal();
+}
+
+function closeNotificationsModal() {
+  elements.notificationsModal.hidden = true;
+}
+
+function renderNotificationsModal() {
+  const notifications = getCurrentUserNotifications();
+  const unread = notifications.filter((notification) => !notification.read).length;
+  elements.notificationsSubtitle.textContent = unread ? `${unread} непрочитано` : "Все прочитано";
+  elements.notificationsList.innerHTML = notifications.length
+    ? notifications
+        .map((notification) => {
+          const actor = getUser(notification.actorId);
+          const task = getTask(notification.taskId);
+          return `
+            <button class="notification-row ${notification.read ? "" : "unread"}" type="button" data-notification-id="${escapeAttr(
+              notification.id,
+            )}" data-task-id="${escapeAttr(notification.taskId || "")}">
+              <span class="activity-dot"></span>
+              <span>
+                <strong>${escapeHtml(actor?.name || "Система")}</strong>
+                ${escapeHtml(notification.text)}
+                ${task ? `<em>${escapeHtml(task.title)}</em>` : ""}
+                <small>${formatDateTime(notification.createdAt)}</small>
+              </span>
+            </button>
+          `;
+        })
+        .join("")
+    : `<div class="empty-state">Нет уведомлений</div>`;
+
+  elements.notificationsList.querySelectorAll(".notification-row").forEach((row) => {
+    row.addEventListener("click", async () => {
+      if (row.dataset.notificationId) {
+        await markNotificationRead(row.dataset.notificationId);
+      }
+      if (row.dataset.taskId) {
+        closeNotificationsModal();
+        openTaskDrawer(row.dataset.taskId);
+      }
+    });
+  });
+  refreshIcons();
+}
+
+function getCurrentUserNotifications() {
+  return [...(state.notifications || [])]
+    .filter((notification) => notification.userId === currentUser().id)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+async function markNotificationRead(notificationId) {
+  if (shouldUseServerMutations()) {
+    await applyServerMutation(`/api/notifications/${encodeURIComponent(notificationId)}`, {
+      method: "PATCH",
+      body: { read: true },
+    });
+    return;
+  }
+
+  const notification = state.notifications.find((item) => item.id === notificationId);
+  if (notification) {
+    notification.read = true;
+    saveState();
+    render();
+  }
+}
+
+async function markAllNotificationsRead() {
+  if (shouldUseServerMutations()) {
+    await applyServerMutation("/api/notifications/read-all", { method: "POST" });
+    return;
+  }
+
+  state.notifications.forEach((notification) => {
+    if (notification.userId === currentUser().id) {
+      notification.read = true;
+    }
+  });
+  saveState();
+  render();
 }
 
 function openTaskDrawer(taskId) {
@@ -737,6 +879,8 @@ function renderTaskDetails() {
   const canDeleteTask = canDelete(task);
   const canCommit = canAddCommit(task);
   const canCommentTask = canComment(task);
+  const canWorkTask = canAddCommit(task);
+  const checklist = getChecklistStats(task);
 
   elements.taskDetails.innerHTML = `
     <div class="drawer-content">
@@ -749,6 +893,7 @@ function renderTaskDetails() {
             <span class="status-chip chip blue">${currentStatus?.label || "Без статуса"}</span>
           </div>
           <h2 id="drawerTitle">${escapeHtml(task.title)}</h2>
+          ${renderLabels(task.labels)}
           <div class="drawer-subtitle">Обновлено ${formatDateTime(task.updatedAt)}</div>
         </div>
         <button class="icon-button ghost" type="button" data-close-detail title="Закрыть">
@@ -809,11 +954,64 @@ function renderTaskDetails() {
           <span>Ветка</span>
           <strong>${escapeHtml(task.branch || "Нет ветки")}</strong>
         </div>
+        <div class="detail-box">
+          <span>Цвет</span>
+          <strong>${taskColors[task.color || "none"]?.label || "Без цвета"}</strong>
+        </div>
+        <div class="detail-box">
+          <span>Чеклист</span>
+          <strong>${checklist.done}/${checklist.total}</strong>
+        </div>
       </div>
 
       <section class="drawer-section">
         <h3 class="section-title">Описание</h3>
         <div class="description-box">${escapeHtml(task.description || "Описание не заполнено.")}</div>
+      </section>
+
+      <section class="drawer-section">
+        <h3 class="section-title">Чеклист</h3>
+        <div class="checklist-list">
+          ${
+            task.checklist.length
+              ? task.checklist.map((item) => renderChecklistItem(item, canWorkTask)).join("")
+              : `<div class="empty-state">Нет пунктов</div>`
+          }
+        </div>
+        <form id="checklistForm" class="inline-form">
+          <label class="field">
+            <span>Новый пункт</span>
+            <input name="text" type="text" maxlength="160" ${canWorkTask ? "" : "disabled"} required />
+          </label>
+          <button class="secondary-button" type="submit" ${canWorkTask ? "" : "disabled"}>
+            <i data-lucide="list-plus"></i>
+            <span>Добавить</span>
+          </button>
+        </form>
+      </section>
+
+      <section class="drawer-section">
+        <h3 class="section-title">Вложения</h3>
+        <div class="attachment-list">
+          ${
+            task.attachments.length
+              ? [...task.attachments]
+                  .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+                  .map((attachment) => renderAttachment(attachment, canWorkTask))
+                  .join("")
+              : `<div class="empty-state">Нет вложений</div>`
+          }
+        </div>
+        <form id="attachmentForm" class="inline-form">
+          <label class="field">
+            <span>Файл</span>
+            <input name="file" type="file" ${canWorkTask && shouldUseServerMutations() ? "" : "disabled"} required />
+          </label>
+          <button class="secondary-button" type="submit" ${canWorkTask && shouldUseServerMutations() ? "" : "disabled"}>
+            <i data-lucide="paperclip"></i>
+            <span>Загрузить</span>
+          </button>
+        </form>
       </section>
 
       <section class="drawer-section">
@@ -891,9 +1089,58 @@ function renderTaskDetails() {
     deleteButton.addEventListener("click", () => deleteTask(task.id));
   }
 
+  elements.taskDetails.querySelector("#checklistForm").addEventListener("submit", handleChecklistSubmit);
+  elements.taskDetails.querySelector("#attachmentForm").addEventListener("submit", handleAttachmentSubmit);
+  elements.taskDetails.querySelectorAll(".checklist-toggle").forEach((input) => {
+    input.addEventListener("change", () => toggleChecklistItem(input.dataset.itemId, input.checked));
+  });
+  elements.taskDetails.querySelectorAll(".delete-checklist-item").forEach((button) => {
+    button.addEventListener("click", () => deleteChecklistItem(button.dataset.itemId));
+  });
+  elements.taskDetails.querySelectorAll(".delete-attachment").forEach((button) => {
+    button.addEventListener("click", () => deleteAttachment(button.dataset.attachmentId));
+  });
   elements.taskDetails.querySelector("#commitForm").addEventListener("submit", handleCommitSubmit);
   elements.taskDetails.querySelector("#commentForm").addEventListener("submit", handleCommentSubmit);
   refreshIcons();
+}
+
+function renderChecklistItem(item, canWorkTask) {
+  return `
+    <div class="checklist-item ${item.done ? "done" : ""}">
+      <label>
+        <input class="checklist-toggle" type="checkbox" data-item-id="${escapeAttr(item.id)}" ${item.done ? "checked" : ""} ${
+          canWorkTask ? "" : "disabled"
+        } />
+        <span>${escapeHtml(item.text)}</span>
+      </label>
+      <button class="icon-button ghost delete-checklist-item" type="button" title="Удалить" data-item-id="${escapeAttr(item.id)}" ${
+        canWorkTask ? "" : "disabled"
+      }>
+        <i data-lucide="trash-2"></i>
+      </button>
+    </div>
+  `;
+}
+
+function renderAttachment(attachment, canWorkTask) {
+  const author = getUser(attachment.uploadedBy);
+  return `
+    <div class="attachment-row">
+      <i data-lucide="${attachmentIcon(attachment)}"></i>
+      <div class="attachment-main">
+        <a href="${escapeAttr(attachment.url || "#")}" target="_blank" rel="noreferrer">${escapeHtml(attachment.name)}</a>
+        <span class="muted">${formatBytes(attachment.size)} · ${escapeHtml(author?.name || "Неизвестно")} · ${formatDateTime(
+          attachment.createdAt,
+        )}</span>
+      </div>
+      <button class="icon-button ghost delete-attachment" type="button" title="Удалить" data-attachment-id="${escapeAttr(
+        attachment.id,
+      )}" ${canWorkTask ? "" : "disabled"}>
+        <i data-lucide="trash-2"></i>
+      </button>
+    </div>
+  `;
 }
 
 function renderCommit(commit) {
@@ -919,7 +1166,7 @@ function renderComment(comment) {
       ${author ? renderAvatar(author, "mini-avatar") : ""}
       <div class="comment-text">
         <strong>${escapeHtml(author?.name || "Неизвестно")}</strong>
-        <div>${escapeHtml(comment.text)}</div>
+        <div>${formatCommentText(comment.text)}</div>
         <span class="muted">${formatDateTime(comment.createdAt)}</span>
       </div>
     </div>
@@ -948,6 +1195,8 @@ function openTaskForm(taskId = null) {
   form.elements.due.value = task?.due || "";
   form.elements.points.value = task?.points ?? "";
   form.elements.branch.value = task?.branch || "";
+  form.elements.labels.value = Array.isArray(task?.labels) ? task.labels.join(", ") : "";
+  form.elements.color.value = task?.color || "none";
 
   elements.assigneePicker.innerHTML = state.users
     .filter((user) => user.role !== "viewer")
@@ -998,6 +1247,8 @@ async function handleTaskFormSubmit(event) {
     due: form.elements.due.value,
     points: Number(form.elements.points.value || 0),
     branch: form.elements.branch.value.trim(),
+    labels: parseLabels(form.elements.labels.value),
+    color: form.elements.color.value,
     assigneeIds,
     updatedAt: new Date().toISOString(),
   };
@@ -1043,6 +1294,8 @@ async function handleTaskFormSubmit(event) {
       createdAt: new Date().toISOString(),
       commits: [],
       comments: [],
+      checklist: [],
+      attachments: [],
     };
     state.tasks.unshift(newTask);
     activeTaskId = newTask.id;
@@ -1369,14 +1622,142 @@ async function handleCommentSubmit(event) {
     id: uid("cm"),
     authorId: currentUser().id,
     text,
+    mentions: findMentionedUserIds(text),
     createdAt: new Date().toISOString(),
   });
   task.updatedAt = new Date().toISOString();
   addActivity(task.id, "оставил комментарий");
+  addMentionNotifications(task, text);
   saveState();
   form.reset();
   render();
   renderTaskDetails();
+}
+
+async function handleChecklistSubmit(event) {
+  event.preventDefault();
+  const task = getTask(activeTaskId);
+  const form = event.currentTarget;
+  const text = form.elements.text.value.trim();
+
+  if (!task || !text) {
+    showToast("Пункт чеклиста пустой.");
+    return;
+  }
+
+  if (shouldUseServerMutations()) {
+    const nextState = await applyServerMutation(`/api/tasks/${encodeURIComponent(task.id)}/checklist`, {
+      method: "POST",
+      body: { text },
+    });
+    if (nextState) {
+      form.reset();
+      renderTaskDetails();
+    }
+    return;
+  }
+
+  task.checklist.push({
+    id: uid("cl"),
+    text,
+    done: false,
+    createdBy: currentUser().id,
+    createdAt: new Date().toISOString(),
+  });
+  task.updatedAt = new Date().toISOString();
+  addActivity(task.id, "добавил пункт чеклиста");
+  saveState();
+  form.reset();
+  render();
+  renderTaskDetails();
+}
+
+async function toggleChecklistItem(itemId, done) {
+  const task = getTask(activeTaskId);
+  if (!task) return;
+
+  if (shouldUseServerMutations()) {
+    await applyServerMutation(`/api/tasks/${encodeURIComponent(task.id)}/checklist/${encodeURIComponent(itemId)}`, {
+      method: "PATCH",
+      body: { done },
+    });
+    return;
+  }
+
+  const item = task.checklist.find((entry) => entry.id === itemId);
+  if (!item) return;
+  item.done = done;
+  item.doneBy = done ? currentUser().id : null;
+  item.doneAt = done ? new Date().toISOString() : null;
+  task.updatedAt = new Date().toISOString();
+  addActivity(task.id, done ? "закрыл пункт чеклиста" : "обновил чеклист");
+  saveState();
+  render();
+  renderTaskDetails();
+}
+
+async function deleteChecklistItem(itemId) {
+  const task = getTask(activeTaskId);
+  if (!task) return;
+
+  if (shouldUseServerMutations()) {
+    await applyServerMutation(`/api/tasks/${encodeURIComponent(task.id)}/checklist/${encodeURIComponent(itemId)}`, {
+      method: "DELETE",
+    });
+    return;
+  }
+
+  task.checklist = task.checklist.filter((item) => item.id !== itemId);
+  task.updatedAt = new Date().toISOString();
+  addActivity(task.id, "удалил пункт чеклиста");
+  saveState();
+  render();
+  renderTaskDetails();
+}
+
+async function handleAttachmentSubmit(event) {
+  event.preventDefault();
+  const task = getTask(activeTaskId);
+  const file = event.currentTarget.elements.file.files[0];
+
+  if (!task || !file) {
+    showToast("Выберите файл.");
+    return;
+  }
+
+  if (!shouldUseServerMutations()) {
+    showToast("Вложения работают через серверный режим.");
+    return;
+  }
+
+  if (file.size > 10 * 1024 * 1024) {
+    showToast("Файл больше 10 МБ.");
+    return;
+  }
+
+  const payload = await fileToAttachmentPayload(file);
+  const nextState = await applyServerMutation(`/api/tasks/${encodeURIComponent(task.id)}/attachments`, {
+    method: "POST",
+    body: payload,
+  });
+  if (nextState) {
+    event.currentTarget.reset();
+    renderTaskDetails();
+  }
+}
+
+async function deleteAttachment(attachmentId) {
+  const task = getTask(activeTaskId);
+  if (!task) return;
+
+  if (!shouldUseServerMutations()) {
+    showToast("Вложения работают через серверный режим.");
+    return;
+  }
+
+  await applyServerMutation(`/api/tasks/${encodeURIComponent(task.id)}/attachments/${encodeURIComponent(attachmentId)}`, {
+    method: "DELETE",
+  });
 }
 
 function getFilteredTasks() {
@@ -1394,6 +1775,9 @@ function getFilteredTasks() {
         task.description,
         task.branch,
         task.sprint,
+        ...task.labels,
+        ...task.checklist.map((item) => item.text),
+        ...task.comments.map((comment) => comment.text),
         ...task.commits.map((commit) => `${commit.hash} ${commit.message} ${commit.branch}`),
       ]
         .join(" ")
@@ -1493,6 +1877,28 @@ function addSystemActivity(text) {
   });
 }
 
+function addMentionNotifications(task, text) {
+  state.notifications = Array.isArray(state.notifications) ? state.notifications : [];
+  findMentionedUserIds(text)
+    .filter((userId) => userId !== currentUser().id)
+    .forEach((userId) => {
+      state.notifications.unshift({
+        id: uid("ntf"),
+        userId,
+        actorId: currentUser().id,
+        taskId: task.id,
+        text: `упомянул вас в ${task.id}`,
+        read: false,
+        createdAt: new Date().toISOString(),
+      });
+    });
+}
+
+function findMentionedUserIds(text) {
+  const normalizedText = String(text || "").toLowerCase();
+  return state.users.filter((user) => normalizedText.includes(`@${user.name.toLowerCase()}`)).map((user) => user.id);
+}
+
 function nextTaskId() {
   const maxNumber = state.tasks.reduce((max, task) => {
     const number = Number(String(task.id).replace(/\D/g, ""));
@@ -1514,6 +1920,87 @@ function renderAvatar(user, extraClass = "") {
   return `<span class="avatar ${extraClass}" style="background:${escapeAttr(user.color || "#66707c")}">${escapeHtml(
     initials(user.name),
   )}</span>`;
+}
+
+function renderLabels(labels = []) {
+  const normalizedLabels = parseLabels(labels);
+  if (!normalizedLabels.length) return "";
+
+  return `
+    <div class="label-list">
+      ${normalizedLabels
+        .map(
+          (label) =>
+            `<span class="label-chip" style="--label-bg:${escapeAttr(labelColor(label))}">${escapeHtml(label)}</span>`,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function parseLabels(value) {
+  const labels = Array.isArray(value) ? value : String(value || "").split(",");
+  return [...new Set(labels.map((label) => String(label || "").trim()).filter(Boolean))].slice(0, 8);
+}
+
+function labelColor(label) {
+  const code = String(label)
+    .split("")
+    .reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return labelPalette[code % labelPalette.length];
+}
+
+function taskColorValue(color) {
+  return taskColors[color || "none"]?.value || taskColors.none.value;
+}
+
+function getChecklistStats(task) {
+  const checklist = Array.isArray(task.checklist) ? task.checklist : [];
+  return {
+    total: checklist.length,
+    done: checklist.filter((item) => item.done).length,
+  };
+}
+
+function attachmentIcon(attachment) {
+  const type = String(attachment.type || "");
+  if (type.startsWith("image/")) return "image";
+  if (type.includes("pdf")) return "file-text";
+  return "file";
+}
+
+function formatBytes(bytes = 0) {
+  const size = Number(bytes || 0);
+  if (size < 1024) return `${size} Б`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} КБ`;
+  return `${(size / 1024 / 1024).toFixed(1)} МБ`;
+}
+
+function formatCommentText(text) {
+  let output = escapeHtml(text);
+  state.users.forEach((user) => {
+    const mention = `@${user.name}`;
+    const escapedMention = escapeHtml(mention);
+    output = output.split(escapedMention).join(`<span class="mention">${escapedMention}</span>`);
+  });
+  return output;
+}
+
+function fileToAttachmentPayload(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      resolve({
+        name: file.name,
+        type: file.type || "application/octet-stream",
+        size: file.size,
+        data: dataUrl.includes(",") ? dataUrl.split(",").pop() : dataUrl,
+      });
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 function initials(name) {
@@ -1600,11 +2087,11 @@ async function loadState() {
 function loadLocalState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return clone(seedState);
+    if (!raw) return normalizeWorkspaceState(seedState);
     const parsed = JSON.parse(raw);
     return normalizeWorkspaceState(parsed);
   } catch {
-    return clone(seedState);
+    return normalizeWorkspaceState(seedState);
   }
 }
 
@@ -1637,7 +2124,7 @@ async function resetWorkspace() {
     });
     if (!nextState) return;
   } else {
-    state = clone(seedState);
+    state = normalizeWorkspaceState(seedState);
     saveState();
   }
 
@@ -1816,12 +2303,20 @@ function normalizeWorkspaceState(candidate) {
       commits: [],
       comments: [],
       assigneeIds: [],
+      labels: [],
+      color: "none",
+      checklist: [],
+      attachments: [],
       ...task,
       commits: Array.isArray(task.commits) ? task.commits : [],
       comments: Array.isArray(task.comments) ? task.comments : [],
       assigneeIds: Array.isArray(task.assigneeIds) ? task.assigneeIds : [],
+      labels: parseLabels(task.labels),
+      checklist: Array.isArray(task.checklist) ? task.checklist : [],
+      attachments: Array.isArray(task.attachments) ? task.attachments : [],
     })),
     activities: Array.isArray(candidate.activities) ? candidate.activities : [],
+    notifications: Array.isArray(candidate.notifications) ? candidate.notifications : [],
   };
   delete normalized.currentUserId;
   return normalized;

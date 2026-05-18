@@ -18,6 +18,61 @@ $env:PORT=4174; node server.js
 
 Приложение можно открыть и напрямую через `index.html`, но тогда данные будут храниться только в `localStorage` текущего браузера. Через `server.js` задачи, пользователи, коммиты и активность сохраняются в общем файле `data/workspace.json`.
 
+## Запуск на сервере
+
+PM2:
+
+```bash
+cd /root/planer/planer
+git pull
+pm2 delete planer || true
+pm2 start ecosystem.config.cjs
+pm2 save
+pm2 status
+```
+
+По умолчанию `ecosystem.config.cjs` запускает приложение на `127.0.0.1:4174`. Если порт занят, поменяйте `PORT` в `ecosystem.config.cjs` и в nginx-конфиге ниже.
+
+Nginx для `planer.code9dev.ru`:
+
+```nginx
+server {
+    listen 80;
+    server_name planer.code9dev.ru;
+
+    location / {
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Применить nginx:
+
+```bash
+sudo nano /etc/nginx/sites-available/planer.code9dev.ru
+sudo ln -s /etc/nginx/sites-available/planer.code9dev.ru /etc/nginx/sites-enabled/planer.code9dev.ru
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+HTTPS через certbot:
+
+```bash
+sudo certbot --nginx -d planer.code9dev.ru
+```
+
+Если PM2 пишет `EADDRINUSE`, значит порт уже занят. Проверка:
+
+```bash
+sudo ss -ltnp | grep ':4174'
+pm2 logs planer --lines 50
+```
+
 ## Бэкапы
 
 Перед каждым сохранением сервер делает копию текущего `data/workspace.json` в `data/backups/`. По умолчанию хранится 30 последних копий. Лимит можно изменить при запуске:

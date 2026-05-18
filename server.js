@@ -8,6 +8,7 @@ const dataDir = path.join(rootDir, "data");
 const dataFile = path.join(dataDir, "workspace.json");
 const backupDir = path.join(dataDir, "backups");
 const port = Number(process.env.PORT || 4173);
+const host = process.env.HOST || "127.0.0.1";
 const maxBodyBytes = 2 * 1024 * 1024;
 const maxBackups = Number(process.env.MAX_BACKUPS || 30);
 const sessions = new Map();
@@ -46,8 +47,17 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-server.listen(port, () => {
-  console.log(`Planum is running at http://localhost:${port}`);
+server.on("error", (error) => {
+  if (error.code === "EADDRINUSE") {
+    console.error(`Port ${port} is already in use. Set another PORT or stop the process that uses it.`);
+    process.exit(1);
+  }
+
+  throw error;
+});
+
+server.listen(port, host, () => {
+  console.log(`Planum is running at http://${host}:${port}`);
 });
 
 async function handleApi(request, response, url) {

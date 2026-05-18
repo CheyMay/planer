@@ -6,6 +6,7 @@ const path = require("node:path");
 const rootDir = __dirname;
 const dataDir = path.join(rootDir, "data");
 const dataFile = path.join(dataDir, "workspace.json");
+const exampleDataFile = path.join(dataDir, "workspace.example.json");
 const backupDir = path.join(dataDir, "backups");
 const port = Number(process.env.PORT || 4173);
 const host = process.env.HOST || "127.0.0.1";
@@ -473,6 +474,18 @@ async function serveStaticFile(urlPathname, response) {
 async function readWorkspace() {
   try {
     const content = await fs.readFile(dataFile, "utf8");
+    return normalizeWorkspace(JSON.parse(content));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return readExampleWorkspace();
+    }
+    throw error;
+  }
+}
+
+async function readExampleWorkspace() {
+  try {
+    const content = await fs.readFile(exampleDataFile, "utf8");
     return normalizeWorkspace(JSON.parse(content));
   } catch (error) {
     if (error.code === "ENOENT") {

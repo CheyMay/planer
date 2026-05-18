@@ -16,7 +16,7 @@ node server.js
 $env:PORT=4174; node server.js
 ```
 
-Приложение можно открыть и напрямую через `index.html`, но тогда данные будут храниться только в `localStorage` текущего браузера. Через `server.js` задачи, пользователи, коммиты и активность сохраняются в общем файле `data/workspace.json`.
+Приложение можно открыть и напрямую через `index.html`, но тогда данные будут храниться только в `localStorage` текущего браузера. Через `server.js` задачи, пользователи, коммиты и активность сохраняются в локальном файле `data/workspace.json`.
 
 ## Запуск на сервере
 
@@ -24,14 +24,17 @@ PM2:
 
 ```bash
 cd /root/planer/planer
+cp data/workspace.json /root/planer/workspace.backup.json 2>/dev/null || true
 git pull
+mkdir -p data
+test -f data/workspace.json || cp data/workspace.example.json data/workspace.json
 pm2 delete planer || true
 pm2 start ecosystem.config.cjs
 pm2 save
 pm2 status
 ```
 
-По умолчанию `ecosystem.config.cjs` запускает приложение на `127.0.0.1:4174`. Если порт занят, поменяйте `PORT` в `ecosystem.config.cjs` и в nginx-конфиге ниже.
+По умолчанию `ecosystem.config.cjs` запускает приложение на `127.0.0.1:4174`. Если порт занят, поменяйте `PORT` в `ecosystem.config.cjs` и в nginx-конфиге ниже. Файл `data/workspace.json` не хранится в git, чтобы рабочие данные на сервере не конфликтовали с обновлениями кода.
 
 Nginx для `planer.code9dev.ru`:
 
